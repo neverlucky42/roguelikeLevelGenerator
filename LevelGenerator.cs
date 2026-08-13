@@ -158,6 +158,11 @@ public class LevelGenerator : MonoBehaviour
         public float weight;
         public float orderingScore;
     }
+    private sealed class SpecialRoomCandidate
+    {
+        public int roomId;
+        public float score;
+    }
     [Header("Prefabs")]
     public LevelPrefabs levelPrefabs;
     [Header("BSP")]
@@ -191,7 +196,7 @@ public class LevelGenerator : MonoBehaviour
     private SelectedTopology selectedTopology;
     [Header("Room roles")]
     public Vector2Int shopRoomCount;
-    public Vector2Int TreasureRoomCount;
+    public Vector2Int treasureRoomCount;
     public int minSpecialRoomDistance = 0;
 
 
@@ -246,7 +251,45 @@ public class LevelGenerator : MonoBehaviour
     }
     private void AssignSpecialRooms(RoomTopology source, SelectedTopology selected, int roomStartId, int bossRoomId)
     {
-        //TODO
+        var candidates = new List<SpecialRoomCandidate>();
+        foreach(var roomId in selected.roomIds)
+        {
+            if (roomId == roomStartId || roomId == bossRoomId) continue;
+            var room = source.rooms[roomId];
+            if (room.isMainPath) continue;
+
+            int degree = 0;
+            var edges = source.adjacency[roomId];
+            foreach (var edgeId in edges)
+            {
+                if (!selected.edgeIds.Contains(edgeId))
+                {
+                    continue;
+                }
+                var otherRoomId = source.GetOtherRoom(edgeId, roomId);
+                if (selected.roomIds.Contains(otherRoomId)) degree++;
+
+                if (degree != 1) continue;
+                //if (room.distanceFromStart < minSpecialRoomDistance) continue;
+                var candidate = new SpecialRoomCandidate();
+                candidate.roomId = roomId;
+                candidate.score = room.distanceFromStart;
+                candidates.Add(candidate);
+            }
+            candidates.Sort((a, b) => a.score.CompareTo(b.score));
+
+            var treasureCount = NextInclusive(roomRoleRng, treasureRoomCount.x, treasureRoomCount.y);
+            var shopCount = NextInclusive(roomRoleRng, shopRoomCount.x, shopRoomCount.y);
+
+            //TODO
+        }
+    }
+
+    private static int NextInclusive(System.Random rng, int minimum, int maximum)
+    {
+        var min = Mathf.Max (0, Mathf.Min(minimum, maximum));
+        var max = Mathf.Max(0, Mathf.Max(minimum, maximum));
+        return rng.Next (min, max + 1);
     }
 
     private void MarkMainPath(RoomTopology source, SelectedTopology selected)
