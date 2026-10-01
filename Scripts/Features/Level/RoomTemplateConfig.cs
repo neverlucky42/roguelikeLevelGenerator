@@ -14,7 +14,7 @@ public sealed class RoomTemplateConfig : ScriptableObject
     [Range(0f, 1f)]
     public float directnes = .7f;
 
-    [Tooltip("На сколько сильно путь может отклониться от прямой линии")]
+    [Tooltip("РќР°СЃРєРѕР»СЊРєРѕ СЃРёР»СЊРЅРѕ РїСѓС‚СЊ РјРѕР¶РµС‚ РѕС‚РєР»РѕРЅРёС‚СЊСЃСЏ РѕС‚ РїСЂСЏРјРѕР№ Р»РёРЅРёРё")]
     [Min(0)]
     public int maxLateralOffset = 3;
 

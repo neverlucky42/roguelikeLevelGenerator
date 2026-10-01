@@ -147,7 +147,6 @@ public sealed class RoomContentPlan
 public sealed class RoomGenerator
 {
     private const int DoorClearanceDepth = 1;
-    public const int NavigationRadius = 0;
     private int levelSeed;
 
     private readonly Dictionary<RoomTemplate, RoomTemplateConfig> configs;
@@ -246,53 +245,161 @@ public sealed class RoomGenerator
 
     private void BuildNavigationSkeleton(RoomContentPlan plan, RoomAnalysis analysis, RoomTemplate template, int roomId)
     {
-        MarkDisk(plan, plan.hub, NavigationRadius, ContentCell.Navigation, true);
+        // Все параметры навигации берём из ассета RoomTemplateConfig.
+        var config = GetConfig(template);
+
+        MarkDisk(plan, plan.hub, config.navigationRadius, ContentCell.Navigation, true);
 
         var random = new System.Random(levelSeed + roomId);
 
         foreach (var enterance in plan.enterances)
         {
-            switch (template)
-            {
-                case RoomTemplate.Arena:
-                case RoomTemplate.OpenArea:
-                    break;
-                case RoomTemplate.Islands:
-                case RoomTemplate.Clusters:
-                    break;
-                case RoomTemplate.Snake:
-                    break;
-                case RoomTemplate.Split:
-                    break;
-                case RoomTemplate.Crossroads:
-                    break;
-            }
-
-            BuildPath(plan, enterance, plan.hub, random);
+            BuildPath(plan, enterance, plan.hub, config, random);
         }
     }
 
-    private static void BuildPath(RoomContentPlan plan, Vector2Int start, Vector2Int end, System.Random rng)
+    private RoomTemplateConfig GetConfig(RoomTemplate template)
+    {
+        if (configs.TryGetValue(template, out var config) && config != null)
+        {
+            return config;
+        }
+
+        // Ассет для шаблона не назначен — создаём дефолтный конфиг в рантайме,
+        // чтобы генератор не падал, и кэшируем его в словаре.
+        Debug.LogWarning("Нет ассета RoomTemplateConfig для шаблона " + template + " — использую настройки по умолчанию.");
+        var fallback = ScriptableObject.CreateInstance<RoomTemplateConfig>();
+        fallback.template = template;
+        configs[template] = fallback;
+        return fallback;
+    }
+
+    private static void BuildPath(RoomContentPlan plan, Vector2Int start, Vector2Int end, RoomTemplateConfig config, System.Random rng)
+    {
+        switch (config.pathMode)
+        {
+            case NavigationPathMode.Direct:
+                BuildDirectPath(plan, start, end, config, rng);
+                break;
+            case NavigationPathMode.Segment:
+                BuildSegmentedPath(plan, start, end, config);
+                break;
+            case NavigationPathMode.Meander:
+                BuildMeanderPath(plan, start, end, config, rng);
+                break;
+        }
+    }
+
+    private static void BuildDirectPath(RoomContentPlan plan, Vector2Int start, Vector2Int end, RoomTemplateConfig config, System.Random rng)
     {
         Vector2Int current = start;
+        MarkDisk(plan, current, config.navigationRadius, ContentCell.Navigation, true);
 
-        MarkDisk(plan, current, NavigationRadius, ContentCell.Navigation, true);
-        var rand = 0d;
         while (current != end)
         {
-            if (current.x == end.x) rand = 1d;
-            else if (current.y == end.y) rand = 0d;
-            else rand = rng.NextDouble();
-            if (rand < 0.5d)
+            int dx = end.x - current.x;
+            int dy = end.y - current.y;
+            bool preferX = Mathf.Abs(dx) >= Mathf.Abs(dy);
+            bool moveX;
+
+            if (dx == 0)
             {
-                current.x += Math.Sign(end.x - current.x);
+                moveX = false;
+            }
+            else if (dy == 0)
+            {
+                moveX = true;
             }
             else
             {
-                current.y += Math.Sign(end.y - current.y);
+                // directnes — вероятность шагнуть по доминирующей оси:
+                // чем выше, тем прямее путь.
+                moveX = rng.NextDouble() < config.directnes ? preferX : !preferX;
             }
-            MarkDisk(plan, current, NavigationRadius, ContentCell.Navigation, true);
+
+            current += moveX
+                ? new Vector2Int(Math.Sign(dx), 0)
+                : new Vector2Int(0, Math.Sign(dy));
+
+            MarkDisk(plan, current, config.navigationRadius, ContentCell.Navigation, true);
         }
+    }
+
+    private static void BuildSegmentedPath(RoomContentPlan plan, Vector2Int start, Vector2Int end, RoomTemplateConfig config)
+    {
+        Vector2Int current = start;
+        MarkDisk(plan, current, config.navigationRadius, ContentCell.Navigation, true);
+
+        // Г-образный путь: сначала по длинной оси, потом по короткой.
+        bool xAxisFirst = Mathf.Abs(end.x - start.x) >= Mathf.Abs(end.y - start.y);
+
+        while (current != end)
+        {
+            if (xAxisFirst && current.x != end.x)
+            {
+                current += new Vector2Int(Math.Sign(end.x - current.x), 0);
+            }
+            else
+            {
+                current += new Vector2Int(0, Math.Sign(end.y - current.y));
+            }
+
+            MarkDisk(plan, current, config.navigationRadius, ContentCell.Navigation, true);
+        }
+    }
+
+    private static void BuildMeanderPath(RoomContentPlan plan, Vector2Int start, Vector2Int end, RoomTemplateConfig config, System.Random rng)
+    {
+        Vector2Int current = start;
+        MarkDisk(plan, current, config.navigationRadius, ContentCell.Navigation, true);
+
+        bool horizontal = Mathf.Abs(end.x - start.x) >= Mathf.Abs(end.y - start.y);
+
+        while (current != end)
+        {
+            // turnChance — как часто путь меняет ось движения (зигзаг).
+            if (rng.NextDouble() < config.turnChance)
+            {
+                horizontal = !horizontal;
+            }
+
+            var stepX = new Vector2Int(Math.Sign(end.x - current.x), 0);
+            var stepY = new Vector2Int(0, Math.Sign(end.y - current.y));
+
+            // Шаг разрешён, если он не уводит путь дальше maxLateralOffset
+            // от прямой start→end. Если оба шага запрещены — просто идём
+            // к цели, чтобы путь гарантированно дошёл до хаба.
+            Vector2Int step;
+            if (horizontal && stepX.x != 0 && !ExceedsLateralOffset(current + stepX, start, end, config.maxLateralOffset))
+            {
+                step = stepX;
+            }
+            else if (stepY.y != 0 && !ExceedsLateralOffset(current + stepY, start, end, config.maxLateralOffset))
+            {
+                step = stepY;
+            }
+            else if (stepX.x != 0)
+            {
+                step = stepX;
+            }
+            else
+            {
+                step = stepY;
+            }
+
+            current += step;
+            MarkDisk(plan, current, config.navigationRadius, ContentCell.Navigation, true);
+        }
+    }
+
+    private static bool ExceedsLateralOffset(Vector2Int cell, Vector2Int start, Vector2Int end, int maxLateralOffset)
+    {
+        // Расстояние от точки до прямой start→end (через векторное произведение).
+        var toEnd = new Vector2(end.x - start.x, end.y - start.y);
+        var toCell = new Vector2(cell.x - start.x, cell.y - start.y);
+        float cross = toCell.x * toEnd.y - toCell.y * toEnd.x;
+        float lateral = Mathf.Abs(cross) / toEnd.magnitude;
+        return lateral > maxLateralOffset;
     }
 
     private static Vector2Int GetEnterance(int roomId, RoomEdge edge)
