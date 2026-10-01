@@ -335,7 +335,12 @@ public sealed class RoomGenerator
 
         while (current != end)
         {
-            if (xAxisFirst && current.x != end.x)
+            // Если идём сначала по X — двигаемся по X, пока не выровняемся,
+            // потом по Y. Если сначала по Y — наоборот. Иначе при
+            // выровненной короткой оси Sign(0) == 0 зацикливал путь.
+            bool moveX = xAxisFirst ? current.x != end.x : current.y == end.y;
+
+            if (moveX)
             {
                 current += new Vector2Int(Math.Sign(end.x - current.x), 0);
             }
