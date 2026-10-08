@@ -213,6 +213,17 @@ input[type="checkbox"] {
     gap: 10px;
 }
 
+.rule-mode-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+}
+
+.rule-mode-tabs button {
+    min-height: 30px;
+    font-size: 12px;
+}
+
 .survival-tabs {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -396,7 +407,7 @@ input[type="checkbox"] {
     background: rgba(255, 255, 255, 0.72);
 }
 
-.grid > div.locked::before {
+.grid > div.core::before {
     content: "";
     position: absolute;
     inset: 20%;
