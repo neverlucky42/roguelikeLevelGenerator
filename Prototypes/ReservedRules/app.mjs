@@ -7,12 +7,13 @@ import React, {
 import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 import {
+    CellularRoleKeys,
+    CellularRuleModes,
     Role,
     RoleBitByKey,
     RoleColors,
     RoleNames,
     RolePriority,
-    SurvivalRoleKeys,
     computeCellCounts,
     defaultConfig,
     generateRoom,
@@ -58,10 +59,10 @@ function pointMarker(mask) {
     return null;
 }
 
-function cellClassNames(mask, locked, door) {
+function cellClassNames(mask, core, door) {
     const names = [];
     if (door) names.push('door');
-    if (locked) names.push('locked');
+    if (core) names.push('core');
     if (mask !== Role.None) names.push('reserved');
     if (popcount(mask) > 1) names.push('multi');
     for (const role of RolePriority) {
@@ -199,14 +200,29 @@ function PointRules({ title, config, pointKey, updatePoint }) {
     `;
 }
 
-function SurvivalRulesEditor({ config, selectedRole, onSelectRole, onChange }) {
+function CellularRulesEditor({ config, ruleMode, selectedRole, onRuleModeChange, onSelectRole, onChange }) {
     const roleLabel = (roleKey) => RoleNames[RoleBitByKey[roleKey]];
-    const rules = config.survivalRules[selectedRole];
+    const rules = config[`${ruleMode}Rules`][selectedRole];
+    const modeLabels = {
+        birth: 'рождается',
+        survival: 'выживает',
+    };
 
     return html`
         <div className="survival-rules">
+            <div className="rule-mode-tabs">
+                ${CellularRuleModes.map((mode) => html`
+                    <button
+                        key=${mode}
+                        className=${ruleMode === mode ? 'active' : ''}
+                        onClick=${() => onRuleModeChange(mode)}
+                    >
+                        ${mode === 'birth' ? 'Рождение' : 'Выживание'}
+                    </button>
+                `)}
+            </div>
             <div className="survival-tabs">
-                ${SurvivalRoleKeys.map((roleKey) => html`
+                ${CellularRoleKeys.map((roleKey) => html`
                     <button
                         key=${roleKey}
                         className=${selectedRole === roleKey ? 'active' : ''}
@@ -217,11 +233,11 @@ function SurvivalRulesEditor({ config, selectedRole, onSelectRole, onChange }) {
                 `)}
             </div>
             <p className="survival-hint">
-                Клетка <strong>${roleLabel(selectedRole)}</strong> выживает,
+                Клетка <strong>${roleLabel(selectedRole)}</strong> ${modeLabels[ruleMode]},
                 если количество соседей каждого типа попадает в заданный диапазон.
             </p>
             <div className="survival-grid">
-                ${SurvivalRoleKeys.map((neighborRole) => {
+                ${CellularRoleKeys.map((neighborRole) => {
                     const rule = rules[neighborRole];
                     return html`
                         <div key=${neighborRole} className="survival-row">
@@ -232,7 +248,7 @@ function SurvivalRulesEditor({ config, selectedRole, onSelectRole, onChange }) {
                                 max=${32}
                                 step=${1}
                                 value=${rule.min}
-                                onInput=${(event) => onChange(selectedRole, neighborRole, 'min', Number(event.target.value))}
+                                onInput=${(event) => onChange(ruleMode, selectedRole, neighborRole, 'min', Number(event.target.value))}
                             />
                             <span>—</span>
                             <input
@@ -241,7 +257,7 @@ function SurvivalRulesEditor({ config, selectedRole, onSelectRole, onChange }) {
                                 max=${32}
                                 step=${1}
                                 value=${rule.max}
-                                onInput=${(event) => onChange(selectedRole, neighborRole, 'max', Number(event.target.value))}
+                                onInput=${(event) => onChange(ruleMode, selectedRole, neighborRole, 'max', Number(event.target.value))}
                             />
                         </div>
                     `;
@@ -257,8 +273,9 @@ function App() {
     const [hovered, setHovered] = useState(null);
     const [importText, setImportText] = useState('');
     const [cellSize, setCellSize] = useState(20);
-    const [showLocked, setShowLocked] = useState(true);
-    const [survivalRole, setSurvivalRole] = useState('corridor');
+    const [showCore, setShowCore] = useState(true);
+    const [ruleMode, setRuleMode] = useState('survival');
+    const [selectedRole, setSelectedRole] = useState('maneuver');
 
     const deferredConfig = useDeferredValue(config);
     const result = useMemo(() => generateRoom(deferredConfig), [deferredConfig]);
@@ -293,15 +310,16 @@ function App() {
         }));
     };
 
-    const updateSurvivalRule = (targetRole, neighborRole, bound, value) => {
+    const updateCellularRule = (mode, targetRole, neighborRole, bound, value) => {
+        const rulesKey = `${mode}Rules`;
         setConfig((current) => ({
             ...current,
-            survivalRules: {
-                ...current.survivalRules,
+            [rulesKey]: {
+                ...current[rulesKey],
                 [targetRole]: {
-                    ...current.survivalRules[targetRole],
+                    ...current[rulesKey][targetRole],
                     [neighborRole]: {
-                        ...current.survivalRules[targetRole][neighborRole],
+                        ...current[rulesKey][targetRole][neighborRole],
                         [bound]: value,
                     },
                 },
@@ -352,7 +370,7 @@ function App() {
         y: Math.floor(hovered / result.width),
     };
     const hoveredMask = hovered === null ? Role.None : activeMask[hovered];
-    const hoveredLocked = hovered === null ? false : Boolean(result.lockedMask[hovered]);
+    const hoveredCore = hovered === null ? false : result.coreMask[hovered] !== Role.None;
     const hoveredCounts = hovered === null ? null : activeCounts[hovered];
 
     const cells = useMemo(() => {
@@ -363,28 +381,28 @@ function App() {
                 y: Math.floor(i / result.width),
             };
             const mask = activeMask[i];
-            const locked = result.lockedMask[i] !== Role.None;
+            const core = result.coreMask[i] !== Role.None;
             const door = doorIndexes.has(i);
             const counts = activeCounts[i];
             const label = maskToLabel(mask);
-            const visualLocked = showLocked && locked;
+            const visualCore = showCore && core;
             const marker = pointMarker(mask);
             items.push({
                 index: i,
                 point,
                 mask,
-                locked,
+                core,
                 door,
                 counts,
                 label,
-                className: cellClassNames(mask, visualLocked, door),
+                className: cellClassNames(mask, visualCore, door),
                 backgroundColor: RoleColors[primaryRole(mask)],
-                title: `${point.x}, ${point.y} — ${door ? 'Door | ' : ''}${label} — C:${counts.corridor} M:${counts.maneuver} S:${counts.spawn} L:${counts.loot} N:${counts.npc} B:${counts.structure} R:${counts.reserved}${locked ? ' [locked]' : ''}`,
+                title: `${point.x}, ${point.y} — ${door ? 'Door | ' : ''}${label} — C:${counts.corridor} M:${counts.maneuver} S:${counts.spawn} L:${counts.loot} N:${counts.npc} B:${counts.structure} R:${counts.reserved}${core ? ' [core]' : ''}`,
                 marker,
             });
         }
         return items;
-    }, [activeMask, activeCounts, doorIndexes, result.lockedMask, result.width, showLocked]);
+    }, [activeMask, activeCounts, doorIndexes, result.coreMask, result.width, showCore]);
 
     return html`
         <div className="app">
@@ -510,55 +528,16 @@ function App() {
                         step=${1}
                         onChange=${(value) => update('radius', value)}
                     />
-                    <${SelectField}
-                        label="Источник рождения"
-                        value=${config.birthSource}
-                        options=${[
-                            { value: 'any', label: 'Any reserved' },
-                            { value: 'corridor', label: 'Corridor' },
-                            { value: 'maneuver', label: 'Maneuver' },
-                        ]}
-                        onChange=${(value) => update('birthSource', value)}
-                    />
-                    <${RangeField}
-                        label="Порог рождения"
-                        value=${config.birthThreshold}
-                        min=${0}
-                        max=${32}
-                        step=${1}
-                        onChange=${(value) => update('birthThreshold', value)}
-                        hint="Free -> Maneuver"
-                    />
-                    <${RangeField}
-                        label="Кольцо коридора"
-                        value=${config.corridorRing}
-                        min=${0}
-                        max=${32}
-                        step=${1}
-                        onChange=${(value) => update('corridorRing', value)}
-                        hint="Maneuver neighbors around corridor"
-                    />
-                    <${RangeField}
-                        label="Макс. доля Reserved"
-                        value=${config.maxReservedRatio}
-                        min=${0.05}
-                        max=${1}
-                        step=${0.01}
-                        onChange=${(value) => update('maxReservedRatio', value)}
-                    />
-                    <${ToggleField}
-                        label="Обрезать острова"
-                        value=${config.pruneIslands}
-                        onChange=${(value) => update('pruneIslands', value)}
-                    />
                 <//>
 
-                <${Section} title="Правила выживания">
-                    <${SurvivalRulesEditor}
+                <${Section} title="Правила автомата">
+                    <${CellularRulesEditor}
                         config=${config}
-                        selectedRole=${survivalRole}
-                        onSelectRole=${setSurvivalRole}
-                        onChange=${updateSurvivalRule}
+                        ruleMode=${ruleMode}
+                        selectedRole=${selectedRole}
+                        onRuleModeChange=${setRuleMode}
+                        onSelectRole=${setSelectedRole}
+                        onChange=${updateCellularRule}
                     />
                 <//>
 
@@ -599,6 +578,8 @@ function App() {
                 <div className="toolbar">
                     <${StatChip} label="Комната" value=${`${result.width}×${result.height}`} />
                     <${StatChip} label="Reserved" value=${`${(result.stats.reservedRatio * 100).toFixed(1)}%`} />
+                    <${StatChip} label="Core" value=${result.stats.coreCount} />
+                    <${StatChip} label="Dynamic" value=${result.stats.dynamicCount} />
                     <${StatChip} label="Corridor" value=${result.roleCounts[Role.Corridor]} />
                     <${StatChip} label="Maneuver" value=${result.roleCounts[Role.Maneuver]} />
                     <${StatChip} label="Spawn" value=${result.roleCounts[Role.Spawn]} />
@@ -606,7 +587,7 @@ function App() {
                     <${StatChip} label="NPC" value=${result.roleCounts[Role.Npc]} />
                     <${StatChip} label="Structure" value=${result.roleCounts[Role.Structure]} />
                     <${StatChip}
-                        label="Связность"
+                        label="Core-связность"
                         value=${result.stats.connected ? 'yes' : 'no'}
                         tone=${result.stats.connected ? 'good' : 'bad'}
                     />
@@ -629,10 +610,10 @@ function App() {
                     <label>
                         <input
                             type="checkbox"
-                            checked=${showLocked}
-                            onChange=${(event) => setShowLocked(event.target.checked)}
+                            checked=${showCore}
+                            onChange=${(event) => setShowCore(event.target.checked)}
                         />
-                        Показывать фикс
+                        Показывать core
                     </label>
                     <${RangeField}
                         label="Размер клетки"
@@ -687,8 +668,8 @@ function App() {
                             <span>${maskToLabel(hoveredMask)}</span>
                         </div>
                         <div>
-                            <strong>Locked</strong>
-                            <span>${hoveredLocked ? 'yes' : 'no'}</span>
+                            <strong>Core</strong>
+                            <span>${hoveredCore ? 'yes' : 'no'}</span>
                         </div>
                         <div>
                             <strong>Neighbors</strong>

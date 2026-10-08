@@ -37,7 +37,7 @@ export const RolePriority = Object.freeze([
     Role.Maneuver,
 ]);
 
-export const SurvivalRoleKeys = Object.freeze([
+export const CellularRoleKeys = Object.freeze([
     'corridor',
     'maneuver',
     'spawn',
@@ -45,6 +45,10 @@ export const SurvivalRoleKeys = Object.freeze([
     'npc',
     'structure',
 ]);
+
+export const SurvivalRoleKeys = CellularRoleKeys;
+
+export const CellularRuleModes = Object.freeze(['birth', 'survival']);
 
 export const RoleBitByKey = Object.freeze({
     corridor: Role.Corridor,
@@ -183,16 +187,7 @@ function countRole(mask, index, role, width, height, config) {
     return count;
 }
 
-function countReserved(mask, index, width, height, config) {
-    const point = indexToPoint(index, width);
-    let count = 0;
-    for (const j of neighborIndexes(point, width, height, config.radius, config.neighborhood)) {
-        if (mask[j] !== Role.None) count += 1;
-    }
-    return count;
-}
-
-function markDisk(mask, lockedMask, center, radius, role, locked, width, height, overwrite = false) {
+function markDisk(mask, coreMask, center, radius, role, locked, width, height, overwrite = false) {
     const r = Math.max(0, Math.round(radius));
     for (let dy = -r; dy <= r; dy += 1) {
         for (let dx = -r; dx <= r; dx += 1) {
@@ -200,14 +195,19 @@ function markDisk(mask, lockedMask, center, radius, role, locked, width, height,
             const point = { x: center.x + dx, y: center.y + dy };
             if (!isInside(point, width, height)) continue;
             const index = pointToIndex(point, width);
-            if (overwrite) mask[index] = role;
-            else mask[index] |= role;
-            if (locked) lockedMask[index] |= role;
+            if (locked) {
+                if (overwrite) mask[index] = role;
+                else mask[index] |= role;
+                coreMask[index] |= role;
+            } else if (coreMask[index] === Role.None) {
+                if (overwrite) mask[index] = role;
+                else mask[index] |= role;
+            }
         }
     }
 }
 
-function markSquare(mask, lockedMask, center, size, role, locked, width, height) {
+function markSquare(mask, coreMask, center, size, role, locked, width, height) {
     const side = Math.max(1, Math.round(size));
     const start = -Math.floor((side - 1) / 2);
     for (let dy = start; dy < start + side; dy += 1) {
@@ -216,9 +216,62 @@ function markSquare(mask, lockedMask, center, size, role, locked, width, height)
             if (!isInside(point, width, height)) continue;
             const index = pointToIndex(point, width);
             mask[index] |= role;
-            if (locked) lockedMask[index] |= role;
+            if (locked) coreMask[index] |= role;
         }
     }
+}
+
+function defaultBirthRules() {
+    return {
+        corridor: {
+            corridor: { min: 2, max: 8 },
+            maneuver: { min: 0, max: 8 },
+            spawn: { min: 0, max: 1 },
+            loot: { min: 0, max: 1 },
+            npc: { min: 0, max: 1 },
+            structure: { min: 0, max: 8 },
+        },
+        maneuver: {
+            corridor: { min: 1, max: 8 },
+            maneuver: { min: 1, max: 8 },
+            spawn: { min: 0, max: 2 },
+            loot: { min: 0, max: 2 },
+            npc: { min: 0, max: 2 },
+            structure: { min: 0, max: 8 },
+        },
+        spawn: {
+            corridor: { min: 0, max: 3 },
+            maneuver: { min: 2, max: 8 },
+            spawn: { min: 0, max: 2 },
+            loot: { min: 0, max: 1 },
+            npc: { min: 0, max: 1 },
+            structure: { min: 0, max: 4 },
+        },
+        loot: {
+            corridor: { min: 0, max: 3 },
+            maneuver: { min: 3, max: 8 },
+            spawn: { min: 0, max: 0 },
+            loot: { min: 0, max: 2 },
+            npc: { min: 0, max: 1 },
+            structure: { min: 0, max: 4 },
+        },
+        npc: {
+            corridor: { min: 0, max: 3 },
+            maneuver: { min: 2, max: 8 },
+            spawn: { min: 0, max: 1 },
+            loot: { min: 0, max: 1 },
+            npc: { min: 0, max: 2 },
+            structure: { min: 0, max: 4 },
+        },
+        structure: {
+            corridor: { min: 0, max: 0 },
+            maneuver: { min: 0, max: 0 },
+            spawn: { min: 0, max: 0 },
+            loot: { min: 0, max: 0 },
+            npc: { min: 0, max: 0 },
+            structure: { min: 1, max: 8 },
+        },
+    };
 }
 
 function defaultSurvivalRules() {
@@ -303,11 +356,7 @@ export function defaultConfig() {
         iterations: 10,
         neighborhood: 'moore',
         radius: 1,
-        birthSource: 'any',
-        birthThreshold: 2,
-        corridorRing: 3,
-        maxReservedRatio: 0.62,
-        pruneIslands: true,
+        birthRules: defaultBirthRules(),
         survivalRules: defaultSurvivalRules(),
         spawn: {
             count: 5,
@@ -338,9 +387,6 @@ export const presets = {
         height: 24,
         hubRadius: 5,
         structureFootprint: 2,
-        corridorRing: 3,
-        birthThreshold: 2,
-        maxReservedRatio: 0.68,
         survivalRules: deepMerge(defaultSurvivalRules(), {
             corridor: {
                 spawn: { min: 0, max: 1 },
@@ -371,9 +417,6 @@ export const presets = {
         height: 20,
         hubRadius: 3,
         structureFootprint: 0,
-        corridorRing: 3,
-        birthThreshold: 3,
-        maxReservedRatio: 0.52,
         survivalRules: deepMerge(defaultSurvivalRules(), {
             corridor: {
                 spawn: { min: 0, max: 2 },
@@ -400,9 +443,6 @@ export const presets = {
         height: 18,
         hubRadius: 3,
         structureFootprint: 0,
-        corridorRing: 2,
-        birthThreshold: 3,
-        maxReservedRatio: 0.45,
         survivalRules: deepMerge(defaultSurvivalRules(), {
             corridor: {
                 loot: { min: 0, max: 1 },
@@ -426,9 +466,6 @@ export const presets = {
         height: 18,
         hubRadius: 3,
         structureFootprint: 0,
-        corridorRing: 2,
-        birthThreshold: 3,
-        maxReservedRatio: 0.48,
         survivalRules: deepMerge(defaultSurvivalRules(), {
             corridor: {
                 npc: { min: 0, max: 1 },
@@ -460,18 +497,18 @@ function normalizeConfig(config) {
     merged.noise = clampFloat(merged.noise, 0, 0.5);
     merged.iterations = clampInt(merged.iterations, 0, 40);
     merged.radius = clampInt(merged.radius, 1, 4);
-    merged.birthThreshold = clampInt(merged.birthThreshold, 0, 32);
-    merged.corridorRing = clampInt(merged.corridorRing, 0, 32);
-    merged.maxReservedRatio = clampFloat(merged.maxReservedRatio, 0.05, 1);
+    merged.birthRules = deepMerge(defaultBirthRules(), config.birthRules || {});
     merged.survivalRules = deepMerge(defaultSurvivalRules(), config.survivalRules || {});
-    for (const targetRole of SurvivalRoleKeys) {
-        const targetRules = merged.survivalRules[targetRole];
-        for (const neighborRole of SurvivalRoleKeys) {
-            const rule = targetRules[neighborRole];
-            rule.min = clampInt(rule.min, 0, 32);
-            rule.max = clampInt(rule.max, 0, 32);
-            if (rule.min > rule.max) {
-                [rule.min, rule.max] = [rule.max, rule.min];
+    for (const ruleSet of [merged.birthRules, merged.survivalRules]) {
+        for (const targetRole of CellularRoleKeys) {
+            const targetRules = ruleSet[targetRole];
+            for (const neighborRole of CellularRoleKeys) {
+                const rule = targetRules[neighborRole];
+                rule.min = clampInt(rule.min, 0, 32);
+                rule.max = clampInt(rule.max, 0, 32);
+                if (rule.min > rule.max) {
+                    [rule.min, rule.max] = [rule.max, rule.min];
+                }
             }
         }
     }
@@ -484,7 +521,6 @@ function normalizeConfig(config) {
     }
     if (!['direct', 'segment', 'meander'].includes(merged.pathMode)) merged.pathMode = 'direct';
     if (!['moore', 'vonNeumann'].includes(merged.neighborhood)) merged.neighborhood = 'moore';
-    if (!['corridor', 'maneuver', 'any'].includes(merged.birthSource)) merged.birthSource = 'any';
     return merged;
 }
 
@@ -620,7 +656,7 @@ function perpendicularOffsets(width) {
     return Array.from({ length: size }, (_, i) => start + i);
 }
 
-function markPath(mask, lockedMask, path, width, height, corridorWidth) {
+function markPath(mask, coreMask, path, width, height, corridorWidth) {
     const offsets = perpendicularOffsets(corridorWidth);
     for (let i = 0; i < path.length; i += 1) {
         const current = path[i];
@@ -633,6 +669,7 @@ function markPath(mask, lockedMask, path, width, height, corridorWidth) {
             if (!isInside(point, width, height)) return;
             const index = pointToIndex(point, width);
             mask[index] |= Role.Corridor;
+            coreMask[index] |= Role.Corridor;
         };
 
         if (directionX !== 0) {
@@ -643,16 +680,6 @@ function markPath(mask, lockedMask, path, width, height, corridorWidth) {
         }
         if (directionX === 0 && directionY === 0) mark(current);
     }
-}
-
-function supportCount(mask, index, config, width, height) {
-    if (config.birthSource === 'corridor') {
-        return countRole(mask, index, Role.Corridor, width, height, config);
-    }
-    if (config.birthSource === 'maneuver') {
-        return countRole(mask, index, Role.Maneuver, width, height, config);
-    }
-    return countReserved(mask, index, width, height, config);
 }
 
 function neighborRoleCounts(mask, index, config, width, height) {
@@ -679,10 +706,8 @@ function neighborRoleCounts(mask, index, config, width, height) {
     return counts;
 }
 
-function survivesRole(mask, index, roleKey, config, width, height) {
-    const counts = neighborRoleCounts(mask, index, config, width, height);
-    const rules = config.survivalRules[roleKey];
-    for (const neighborRole of SurvivalRoleKeys) {
+function passesRuleSet(counts, rules) {
+    for (const neighborRole of CellularRoleKeys) {
         const rule = rules[neighborRole];
         const count = counts[neighborRole];
         if (count < rule.min || count > rule.max) {
@@ -690,23 +715,6 @@ function survivesRole(mask, index, roleKey, config, width, height) {
         }
     }
     return true;
-}
-
-function weakestUnlockedRole(mask, lockedMask, index, config, width, height) {
-    const counts = neighborRoleCounts(mask, index, config, width, height);
-    let weakestRole = null;
-    let weakestSupport = Number.POSITIVE_INFINITY;
-    for (const roleKey of SurvivalRoleKeys) {
-        const roleBit = RoleBitByKey[roleKey];
-        if (!(mask[index] & roleBit)) continue;
-        if (lockedMask[index] & roleBit) continue;
-        const support = counts[roleKey];
-        if (support < weakestSupport) {
-            weakestSupport = support;
-            weakestRole = roleBit;
-        }
-    }
-    return weakestRole;
 }
 
 function reservedRatio(mask) {
@@ -717,80 +725,32 @@ function reservedRatio(mask) {
     return mask.length === 0 ? 0 : reserved / mask.length;
 }
 
-function enforceCorridorRing(mask, lockedMask, config, width, height) {
-    for (let i = 0; i < mask.length; i += 1) {
-        if (!(mask[i] & Role.Corridor)) continue;
-        let maneuverCount = countRole(mask, i, Role.Maneuver, width, height, config);
-        if (maneuverCount >= config.corridorRing) continue;
-
-        const point = indexToPoint(i, width);
-        const neighbors = neighborIndexes(point, width, height, config.radius, config.neighborhood);
-        for (const j of neighbors) {
-            if (maneuverCount >= config.corridorRing) break;
-            if (mask[j] !== Role.None) continue;
-            if (lockedMask[j] & Role.Corridor) continue;
-            mask[j] |= Role.Maneuver;
-            maneuverCount += 1;
-        }
-    }
-}
-
-function enforceReservedRatio(mask, lockedMask, config, width, height, rng) {
-    let ratio = reservedRatio(mask);
-    if (ratio <= config.maxReservedRatio) return;
-
-    const candidates = [];
-    for (let i = 0; i < mask.length; i += 1) {
-        if (mask[i] === Role.None) continue;
-        if (mask[i] & Role.Corridor) continue;
-        const weakestRole = weakestUnlockedRole(mask, lockedMask, i, config, width, height);
-        if (weakestRole === null) continue;
-        const support = neighborRoleCounts(mask, i, config, width, height);
-        const roleKey = SurvivalRoleKeys.find((key) => RoleBitByKey[key] === weakestRole);
-        candidates.push({
-            index: i,
-            role: weakestRole,
-            support: support[roleKey],
-            noise: rng.float(),
-        });
-    }
-    candidates.sort((a, b) => (a.support - b.support) || (a.noise - b.noise));
-
-    for (const candidate of candidates) {
-        if (ratio <= config.maxReservedRatio) break;
-        mask[candidate.index] &= ~candidate.role;
-        ratio = reservedRatio(mask);
-    }
-}
-
-function runAutomaton(initialMask, lockedMask, config, rng, width, height) {
+function runCellularAutomaton(initialMask, coreMask, config, width, height) {
     const mask = copyMask(initialMask);
     const snapshots = [copyMask(mask)];
     let previous = copyMask(mask);
 
     for (let iteration = 0; iteration < config.iterations; iteration += 1) {
-        const next = copyMask(mask);
+        const next = new Uint16Array(mask.length);
 
         for (let i = 0; i < next.length; i += 1) {
-            for (const roleKey of SurvivalRoleKeys) {
-                const roleBit = RoleBitByKey[roleKey];
-                if (!(mask[i] & roleBit)) continue;
-                if (lockedMask[i] & roleBit) continue;
-                if (!survivesRole(mask, i, roleKey, config, width, height)) {
-                    next[i] &= ~roleBit;
-                }
+            if (coreMask[i] !== Role.None) {
+                next[i] = coreMask[i];
+                continue;
             }
 
-            if (next[i] === Role.None && (lockedMask[i] & Role.Maneuver) === 0) {
-                const support = supportCount(mask, i, config, width, height);
-                if (support >= config.birthThreshold) {
-                    next[i] |= Role.Maneuver;
+            const counts = neighborRoleCounts(mask, i, config, width, height);
+            for (const roleKey of CellularRoleKeys) {
+                const roleBit = RoleBitByKey[roleKey];
+                const isPresent = (mask[i] & roleBit) !== 0;
+                const rules = isPresent
+                    ? config.survivalRules[roleKey]
+                    : config.birthRules[roleKey];
+                if (passesRuleSet(counts, rules)) {
+                    next[i] |= roleBit;
                 }
             }
         }
-
-        enforceCorridorRing(next, lockedMask, config, width, height);
-        enforceReservedRatio(next, lockedMask, config, width, height, rng);
 
         mask.set(next);
         snapshots.push(copyMask(mask));
@@ -802,7 +762,7 @@ function runAutomaton(initialMask, lockedMask, config, rng, width, height) {
     return { mask, snapshots };
 }
 
-function floodFillReserved(mask, startIndex, config, width, height) {
+function floodFillReserved(mask, startIndex, width, height) {
     const visited = new Uint8Array(mask.length);
     if (mask[startIndex] === Role.None) return visited;
     const queue = [startIndex];
@@ -821,26 +781,54 @@ function floodFillReserved(mask, startIndex, config, width, height) {
     return visited;
 }
 
-function pruneOrAuditIslands(mask, config, width, height, hubIndex, warnings) {
-    const visited = floodFillReserved(mask, hubIndex, config, width, height);
-    let disconnected = 0;
+function auditCoreConnectivity(coreMask, hubIndex, width, height) {
+    const visited = floodFillReserved(coreMask, hubIndex, width, height);
+    let disconnectedCore = 0;
+    for (let i = 0; i < coreMask.length; i += 1) {
+        if (coreMask[i] === Role.None) continue;
+        if (visited[i]) continue;
+        disconnectedCore += 1;
+    }
+    return { connected: disconnectedCore === 0, disconnectedCore };
+}
+
+function auditDynamicIslands(mask, coreMask, width, height, warnings) {
+    const visited = new Uint8Array(mask.length);
+    const queue = [];
+    for (let i = 0; i < mask.length; i += 1) {
+        if (coreMask[i] === Role.None) continue;
+        if (mask[i] === Role.None) continue;
+        visited[i] = 1;
+        queue.push(i);
+    }
+    while (queue.length > 0) {
+        const index = queue.pop();
+        const point = indexToPoint(index, width);
+        for (const j of neighborIndexes(point, width, height, 1, 'moore')) {
+            if (visited[j]) continue;
+            if (mask[j] === Role.None) continue;
+            visited[j] = 1;
+            queue.push(j);
+        }
+    }
+    let disconnectedDynamic = 0;
     for (let i = 0; i < mask.length; i += 1) {
         if (mask[i] === Role.None) continue;
+        if (coreMask[i] !== Role.None) continue;
         if (visited[i]) continue;
-        disconnected += 1;
-        if (config.pruneIslands) mask[i] = Role.None;
+        disconnectedDynamic += 1;
     }
-    if (!config.pruneIslands && disconnected > 0) {
-        warnings.push(`${disconnected} reserved cells are not connected to the hub`);
+    if (disconnectedDynamic > 0) {
+        warnings.push(`${disconnectedDynamic} dynamic reserved cells are not connected to the core`);
     }
-    return { visited, disconnected };
+    return { disconnectedDynamic };
 }
 
 function manhattan(a, b) {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
-function placePoints(mask, lockedMask, config, rng, doors, hub, width, height, warnings) {
+function placePoints(mask, coreMask, config, rng, doors, hub, width, height, warnings) {
     const points = {
         [Role.Spawn]: [],
         [Role.Loot]: [],
@@ -863,6 +851,7 @@ function placePoints(mask, lockedMask, config, rng, doors, hub, width, height, w
         while (remaining > 0) {
             const candidates = [];
             for (let i = 0; i < mask.length; i += 1) {
+                if (coreMask[i] !== Role.None) continue;
                 if (!(mask[i] & Role.Maneuver)) continue;
                 if (mask[i] & Role.Corridor) continue;
                 if (occupied.has(i)) continue;
@@ -927,6 +916,24 @@ function placePoints(mask, lockedMask, config, rng, doors, hub, width, height, w
     return points;
 }
 
+function extractPoints(mask, width, height) {
+    const points = {
+        [Role.Spawn]: [],
+        [Role.Loot]: [],
+        [Role.Npc]: [],
+    };
+    for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+            const index = pointToIndex({ x, y }, width);
+            const value = mask[index];
+            if (value & Role.Spawn) points[Role.Spawn].push({ x, y });
+            if (value & Role.Loot) points[Role.Loot].push({ x, y });
+            if (value & Role.Npc) points[Role.Npc].push({ x, y });
+        }
+    }
+    return points;
+}
+
 function countRoles(mask) {
     const counts = {
         [Role.None]: 0,
@@ -956,7 +963,7 @@ export function generateRoom(inputConfig) {
     const height = config.height;
     const size = width * height;
     const mask = new Uint16Array(size);
-    const lockedMask = new Uint16Array(size);
+    const coreMask = new Uint16Array(size);
     const warnings = [];
 
     const { doors, entrances, sides } = generateDoors(config, rng);
@@ -965,30 +972,30 @@ export function generateRoom(inputConfig) {
     for (const door of doors) {
         const index = pointToIndex(door, width);
         mask[index] |= Role.Corridor;
-        lockedMask[index] |= Role.Corridor;
+        coreMask[index] |= Role.Corridor;
     }
     for (const entrance of entrances) {
         const index = pointToIndex(entrance, width);
         mask[index] |= Role.Corridor;
-        lockedMask[index] |= Role.Corridor;
+        coreMask[index] |= Role.Corridor;
     }
 
-    markDisk(mask, lockedMask, hub, config.hubRadius, Role.Maneuver, false, width, height);
+    markDisk(mask, coreMask, hub, config.hubRadius, Role.Maneuver, false, width, height);
     const seedHubIndex = pointToIndex(hub, width);
     mask[seedHubIndex] |= Role.Maneuver;
-    lockedMask[seedHubIndex] |= Role.Maneuver;
+    coreMask[seedHubIndex] |= Role.Maneuver;
     if (config.structureFootprint > 0) {
-        markSquare(mask, lockedMask, hub, config.structureFootprint, Role.Structure, true, width, height);
+        markSquare(mask, coreMask, hub, config.structureFootprint, Role.Structure, true, width, height);
     }
 
     for (const entrance of entrances) {
         const path = tracePath(entrance, hub, config.pathMode, rng);
-        markPath(mask, lockedMask, path, width, height, config.corridorWidth);
+        markPath(mask, coreMask, path, width, height, config.corridorWidth);
     }
 
     const seededPoints = placePoints(
         mask,
-        lockedMask,
+        coreMask,
         config,
         rng,
         doors,
@@ -1001,26 +1008,27 @@ export function generateRoom(inputConfig) {
         for (const point of seededPoints[role]) {
             const index = pointToIndex(point, width);
             mask[index] |= role | Role.Maneuver;
-            lockedMask[index] |= role | Role.Maneuver;
         }
     }
 
     if (config.noise > 0) {
         for (let i = 0; i < mask.length; i += 1) {
             if (mask[i] !== Role.None) continue;
-            if (lockedMask[i] !== Role.None) continue;
+            if (coreMask[i] !== Role.None) continue;
             if (rng.chance(config.noise)) mask[i] |= Role.Maneuver;
         }
     }
 
-    const automaton = runAutomaton(mask, lockedMask, config, rng, width, height);
+    const initialMask = copyMask(mask);
+    const automaton = runCellularAutomaton(initialMask, coreMask, config, width, height);
     mask.set(automaton.mask);
 
     const hubIndex = pointToIndex(hub, width);
-    const connectivity = pruneOrAuditIslands(mask, config, width, height, hubIndex, warnings);
-    const points = seededPoints;
+    const coreConnectivity = auditCoreConnectivity(coreMask, hubIndex, width, height);
+    const dynamicConnectivity = auditDynamicIslands(mask, coreMask, width, height, warnings);
+    const points = extractPoints(mask, width, height);
 
-    const snapshots = [...automaton.snapshots, copyMask(mask)];
+    const snapshots = automaton.snapshots;
     const counts = computeCellCounts(mask, width, height, config);
     const roleCounts = countRoles(mask);
     const reservedCount = size - roleCounts[Role.None];
@@ -1031,7 +1039,7 @@ export function generateRoom(inputConfig) {
         height,
         seed: config.seed,
         mask,
-        lockedMask,
+        coreMask,
         doors,
         entrances,
         sides,
@@ -1044,8 +1052,12 @@ export function generateRoom(inputConfig) {
             reservedCount,
             reservedRatio: reservedRatio(mask),
             iterations: automaton.snapshots.length - 1,
-            connected: connectivity.disconnected === 0,
-            disconnectedCount: connectivity.disconnected,
+            connected: coreConnectivity.connected,
+            coreConnected: coreConnectivity.connected,
+            disconnectedCoreCount: coreConnectivity.disconnectedCore,
+            disconnectedDynamicCount: dynamicConnectivity.disconnectedDynamic,
+            coreCount: coreMask.filter((value) => value !== Role.None).length,
+            dynamicCount: mask.filter((value, index) => value !== Role.None && coreMask[index] === Role.None).length,
         },
         warnings,
     };
