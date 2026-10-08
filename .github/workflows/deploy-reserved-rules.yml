@@ -2,7 +2,7 @@ name: Deploy Reserved Rules Lab
 
 on:
   push:
-    branches: [teacher]
+    branches: [main, teacher]
   workflow_dispatch:
 
 permissions:
