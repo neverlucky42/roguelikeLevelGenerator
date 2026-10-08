@@ -37,6 +37,24 @@ export const RolePriority = Object.freeze([
     Role.Maneuver,
 ]);
 
+export const SurvivalRoleKeys = Object.freeze([
+    'corridor',
+    'maneuver',
+    'spawn',
+    'loot',
+    'npc',
+    'structure',
+]);
+
+export const RoleBitByKey = Object.freeze({
+    corridor: Role.Corridor,
+    maneuver: Role.Maneuver,
+    spawn: Role.Spawn,
+    loot: Role.Loot,
+    npc: Role.Npc,
+    structure: Role.Structure,
+});
+
 const sideNames = Object.freeze(['top', 'right', 'bottom', 'left']);
 
 class Rng {
@@ -133,15 +151,25 @@ export function computeCellCounts(mask, width, height, config) {
     for (let i = 0; i < mask.length; i += 1) {
         const point = indexToPoint(i, width);
         const neighbors = neighborIndexes(point, width, height, config.radius, config.neighborhood);
-        let corridor = 0;
-        let maneuver = 0;
+        const roleCounts = {
+            corridor: 0,
+            maneuver: 0,
+            spawn: 0,
+            loot: 0,
+            npc: 0,
+            structure: 0,
+        };
         let reserved = 0;
         for (const j of neighbors) {
-            if (mask[j] & Role.Corridor) corridor += 1;
-            if (mask[j] & Role.Maneuver) maneuver += 1;
+            if (mask[j] & Role.Corridor) roleCounts.corridor += 1;
+            if (mask[j] & Role.Maneuver) roleCounts.maneuver += 1;
+            if (mask[j] & Role.Spawn) roleCounts.spawn += 1;
+            if (mask[j] & Role.Loot) roleCounts.loot += 1;
+            if (mask[j] & Role.Npc) roleCounts.npc += 1;
+            if (mask[j] & Role.Structure) roleCounts.structure += 1;
             if (mask[j] !== Role.None) reserved += 1;
         }
-        counts[i] = { corridor, maneuver, reserved };
+        counts[i] = { ...roleCounts, reserved };
     }
     return counts;
 }
@@ -193,6 +221,73 @@ function markSquare(mask, lockedMask, center, size, role, locked, width, height)
     }
 }
 
+function defaultSurvivalRules() {
+    return {
+        corridor: {
+            corridor: { min: 1, max: 8 },
+            maneuver: { min: 0, max: 8 },
+            spawn: { min: 0, max: 2 },
+            loot: { min: 0, max: 2 },
+            npc: { min: 0, max: 2 },
+            structure: { min: 0, max: 8 },
+        },
+        maneuver: {
+            corridor: { min: 0, max: 8 },
+            maneuver: { min: 1, max: 8 },
+            spawn: { min: 0, max: 3 },
+            loot: { min: 0, max: 3 },
+            npc: { min: 0, max: 3 },
+            structure: { min: 0, max: 8 },
+        },
+        spawn: {
+            corridor: { min: 0, max: 4 },
+            maneuver: { min: 1, max: 8 },
+            spawn: { min: 0, max: 3 },
+            loot: { min: 0, max: 2 },
+            npc: { min: 0, max: 2 },
+            structure: { min: 0, max: 8 },
+        },
+        loot: {
+            corridor: { min: 0, max: 4 },
+            maneuver: { min: 1, max: 8 },
+            spawn: { min: 0, max: 1 },
+            loot: { min: 0, max: 3 },
+            npc: { min: 0, max: 2 },
+            structure: { min: 0, max: 8 },
+        },
+        npc: {
+            corridor: { min: 0, max: 4 },
+            maneuver: { min: 1, max: 8 },
+            spawn: { min: 0, max: 2 },
+            loot: { min: 0, max: 2 },
+            npc: { min: 0, max: 3 },
+            structure: { min: 0, max: 8 },
+        },
+        structure: {
+            corridor: { min: 0, max: 8 },
+            maneuver: { min: 0, max: 8 },
+            spawn: { min: 0, max: 8 },
+            loot: { min: 0, max: 8 },
+            npc: { min: 0, max: 8 },
+            structure: { min: 0, max: 8 },
+        },
+    };
+}
+
+function deepMerge(base, override) {
+    if (Array.isArray(base) || Array.isArray(override)) {
+        return override === undefined ? base : override;
+    }
+    if (typeof base === 'object' && base !== null && typeof override === 'object' && override !== null) {
+        const result = { ...base };
+        for (const key of Object.keys(override)) {
+            result[key] = deepMerge(base[key], override[key]);
+        }
+        return result;
+    }
+    return override === undefined ? base : override;
+}
+
 export function defaultConfig() {
     return {
         width: 28,
@@ -210,10 +305,10 @@ export function defaultConfig() {
         radius: 1,
         birthSource: 'any',
         birthThreshold: 2,
-        deathThreshold: 1,
         corridorRing: 3,
         maxReservedRatio: 0.62,
         pruneIslands: true,
+        survivalRules: defaultSurvivalRules(),
         spawn: {
             count: 5,
             minDoorDistance: 4,
@@ -245,8 +340,26 @@ export const presets = {
         structureFootprint: 2,
         corridorRing: 3,
         birthThreshold: 2,
-        deathThreshold: 1,
         maxReservedRatio: 0.68,
+        survivalRules: {
+            corridor: {
+                spawn: { min: 0, max: 1 },
+                loot: { min: 0, max: 1 },
+                npc: { min: 0, max: 1 },
+            },
+            maneuver: {
+                spawn: { min: 0, max: 3 },
+            },
+            spawn: {
+                maneuver: { min: 2, max: 8 },
+            },
+            loot: {
+                maneuver: { min: 3, max: 8 },
+            },
+            npc: {
+                maneuver: { min: 2, max: 8 },
+            },
+        },
         spawn: { count: 6, minDoorDistance: 5, minSpacing: 4, minSupport: 3 },
         loot: { count: 1, minDoorDistance: 8, minSpacing: 8, minSupport: 4 },
         npc: { count: 0, minDoorDistance: 5, minSpacing: 8, minSupport: 4 },
@@ -260,8 +373,22 @@ export const presets = {
         structureFootprint: 0,
         corridorRing: 3,
         birthThreshold: 3,
-        deathThreshold: 2,
         maxReservedRatio: 0.52,
+        survivalRules: {
+            corridor: {
+                spawn: { min: 0, max: 2 },
+                loot: { min: 0, max: 2 },
+            },
+            maneuver: {
+                spawn: { min: 0, max: 4 },
+            },
+            spawn: {
+                maneuver: { min: 2, max: 8 },
+            },
+            loot: {
+                maneuver: { min: 3, max: 8 },
+            },
+        },
         spawn: { count: 3, minDoorDistance: 4, minSpacing: 5, minSupport: 3 },
         loot: { count: 1, minDoorDistance: 7, minSpacing: 8, minSupport: 4 },
         npc: { count: 0, minDoorDistance: 5, minSpacing: 8, minSupport: 4 },
@@ -275,8 +402,19 @@ export const presets = {
         structureFootprint: 0,
         corridorRing: 2,
         birthThreshold: 3,
-        deathThreshold: 2,
         maxReservedRatio: 0.45,
+        survivalRules: {
+            corridor: {
+                loot: { min: 0, max: 1 },
+            },
+            maneuver: {
+                loot: { min: 1, max: 8 },
+            },
+            loot: {
+                maneuver: { min: 3, max: 8 },
+                spawn: { min: 0, max: 0 },
+            },
+        },
         spawn: { count: 1, minDoorDistance: 5, minSpacing: 5, minSupport: 3 },
         loot: { count: 2, minDoorDistance: 8, minSpacing: 7, minSupport: 4 },
         npc: { count: 0, minDoorDistance: 5, minSpacing: 8, minSupport: 4 },
@@ -290,8 +428,19 @@ export const presets = {
         structureFootprint: 0,
         corridorRing: 2,
         birthThreshold: 3,
-        deathThreshold: 2,
         maxReservedRatio: 0.48,
+        survivalRules: {
+            corridor: {
+                npc: { min: 0, max: 1 },
+            },
+            maneuver: {
+                npc: { min: 1, max: 8 },
+            },
+            npc: {
+                maneuver: { min: 2, max: 8 },
+                spawn: { min: 0, max: 1 },
+            },
+        },
         spawn: { count: 0, minDoorDistance: 5, minSpacing: 5, minSupport: 3 },
         loot: { count: 0, minDoorDistance: 8, minSpacing: 8, minSupport: 4 },
         npc: { count: 2, minDoorDistance: 5, minSpacing: 6, minSupport: 4 },
@@ -312,9 +461,20 @@ function normalizeConfig(config) {
     merged.iterations = clampInt(merged.iterations, 0, 40);
     merged.radius = clampInt(merged.radius, 1, 4);
     merged.birthThreshold = clampInt(merged.birthThreshold, 0, 32);
-    merged.deathThreshold = clampInt(merged.deathThreshold, 0, 32);
     merged.corridorRing = clampInt(merged.corridorRing, 0, 32);
     merged.maxReservedRatio = clampFloat(merged.maxReservedRatio, 0.05, 1);
+    merged.survivalRules = deepMerge(defaultSurvivalRules(), config.survivalRules || {});
+    for (const targetRole of SurvivalRoleKeys) {
+        const targetRules = merged.survivalRules[targetRole];
+        for (const neighborRole of SurvivalRoleKeys) {
+            const rule = targetRules[neighborRole];
+            rule.min = clampInt(rule.min, 0, 32);
+            rule.max = clampInt(rule.max, 0, 32);
+            if (rule.min > rule.max) {
+                [rule.min, rule.max] = [rule.max, rule.min];
+            }
+        }
+    }
     for (const key of ['spawn', 'loot', 'npc']) {
         merged[key] = { ...base[key], ...(config[key] || {}) };
         merged[key].count = clampInt(merged[key].count, 0, 16);
@@ -473,7 +633,6 @@ function markPath(mask, lockedMask, path, width, height, corridorWidth) {
             if (!isInside(point, width, height)) return;
             const index = pointToIndex(point, width);
             mask[index] |= Role.Corridor;
-            lockedMask[index] |= Role.Corridor;
         };
 
         if (directionX !== 0) {
@@ -494,6 +653,60 @@ function supportCount(mask, index, config, width, height) {
         return countRole(mask, index, Role.Maneuver, width, height, config);
     }
     return countReserved(mask, index, width, height, config);
+}
+
+function neighborRoleCounts(mask, index, config, width, height) {
+    const point = indexToPoint(index, width);
+    const neighbors = neighborIndexes(point, width, height, config.radius, config.neighborhood);
+    const counts = {
+        corridor: 0,
+        maneuver: 0,
+        spawn: 0,
+        loot: 0,
+        npc: 0,
+        structure: 0,
+        reserved: 0,
+    };
+    for (const j of neighbors) {
+        if (mask[j] & Role.Corridor) counts.corridor += 1;
+        if (mask[j] & Role.Maneuver) counts.maneuver += 1;
+        if (mask[j] & Role.Spawn) counts.spawn += 1;
+        if (mask[j] & Role.Loot) counts.loot += 1;
+        if (mask[j] & Role.Npc) counts.npc += 1;
+        if (mask[j] & Role.Structure) counts.structure += 1;
+        if (mask[j] !== Role.None) counts.reserved += 1;
+    }
+    return counts;
+}
+
+function survivesRole(mask, index, roleKey, config, width, height) {
+    const counts = neighborRoleCounts(mask, index, config, width, height);
+    const rules = config.survivalRules[roleKey];
+    for (const neighborRole of SurvivalRoleKeys) {
+        const rule = rules[neighborRole];
+        const count = counts[neighborRole];
+        if (count < rule.min || count > rule.max) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function weakestUnlockedRole(mask, lockedMask, index, config, width, height) {
+    const counts = neighborRoleCounts(mask, index, config, width, height);
+    let weakestRole = null;
+    let weakestSupport = Number.POSITIVE_INFINITY;
+    for (const roleKey of SurvivalRoleKeys) {
+        const roleBit = RoleBitByKey[roleKey];
+        if (!(mask[index] & roleBit)) continue;
+        if (lockedMask[index] & roleBit) continue;
+        const support = counts[roleKey];
+        if (support < weakestSupport) {
+            weakestSupport = support;
+            weakestRole = roleBit;
+        }
+    }
+    return weakestRole;
 }
 
 function reservedRatio(mask) {
@@ -528,17 +741,24 @@ function enforceReservedRatio(mask, lockedMask, config, width, height, rng) {
 
     const candidates = [];
     for (let i = 0; i < mask.length; i += 1) {
-        if (!(mask[i] & Role.Maneuver)) continue;
+        if (mask[i] === Role.None) continue;
         if (mask[i] & Role.Corridor) continue;
-        if (lockedMask[i] & Role.Maneuver) continue;
-        const support = countRole(mask, i, Role.Maneuver, width, height, config);
-        candidates.push({ index: i, support, noise: rng.float() });
+        const weakestRole = weakestUnlockedRole(mask, lockedMask, i, config, width, height);
+        if (weakestRole === null) continue;
+        const support = neighborRoleCounts(mask, i, config, width, height);
+        const roleKey = SurvivalRoleKeys.find((key) => RoleBitByKey[key] === weakestRole);
+        candidates.push({
+            index: i,
+            role: weakestRole,
+            support: support[roleKey],
+            noise: rng.float(),
+        });
     }
     candidates.sort((a, b) => (a.support - b.support) || (a.noise - b.noise));
 
     for (const candidate of candidates) {
         if (ratio <= config.maxReservedRatio) break;
-        mask[candidate.index] &= ~Role.Maneuver;
+        mask[candidate.index] &= ~candidate.role;
         ratio = reservedRatio(mask);
     }
 }
@@ -552,19 +772,19 @@ function runAutomaton(initialMask, lockedMask, config, rng, width, height) {
         const next = copyMask(mask);
 
         for (let i = 0; i < next.length; i += 1) {
-            const isFree = next[i] === Role.None;
-            const isManeuver = (next[i] & Role.Maneuver) !== 0;
-            const maneuverLocked = (lockedMask[i] & Role.Maneuver) !== 0;
+            for (const roleKey of SurvivalRoleKeys) {
+                const roleBit = RoleBitByKey[roleKey];
+                if (!(mask[i] & roleBit)) continue;
+                if (lockedMask[i] & roleBit) continue;
+                if (!survivesRole(mask, i, roleKey, config, width, height)) {
+                    next[i] &= ~roleBit;
+                }
+            }
 
-            if (isFree && !maneuverLocked) {
+            if (next[i] === Role.None && (lockedMask[i] & Role.Maneuver) === 0) {
                 const support = supportCount(mask, i, config, width, height);
                 if (support >= config.birthThreshold) {
                     next[i] |= Role.Maneuver;
-                }
-            } else if (isManeuver && !maneuverLocked) {
-                const support = supportCount(mask, i, config, width, height);
-                if (support < config.deathThreshold) {
-                    next[i] &= ~Role.Maneuver;
                 }
             }
         }
@@ -763,6 +983,25 @@ export function generateRoom(inputConfig) {
         markPath(mask, lockedMask, path, width, height, config.corridorWidth);
     }
 
+    const seededPoints = placePoints(
+        mask,
+        lockedMask,
+        config,
+        rng,
+        doors,
+        hub,
+        width,
+        height,
+        warnings,
+    );
+    for (const role of [Role.Spawn, Role.Loot, Role.Npc]) {
+        for (const point of seededPoints[role]) {
+            const index = pointToIndex(point, width);
+            mask[index] |= role | Role.Maneuver;
+            lockedMask[index] |= role | Role.Maneuver;
+        }
+    }
+
     if (config.noise > 0) {
         for (let i = 0; i < mask.length; i += 1) {
             if (mask[i] !== Role.None) continue;
@@ -776,17 +1015,7 @@ export function generateRoom(inputConfig) {
 
     const hubIndex = pointToIndex(hub, width);
     const connectivity = pruneOrAuditIslands(mask, config, width, height, hubIndex, warnings);
-    const points = placePoints(
-        mask,
-        lockedMask,
-        config,
-        rng,
-        doors,
-        hub,
-        width,
-        height,
-        warnings,
-    );
+    const points = seededPoints;
 
     const snapshots = [...automaton.snapshots, copyMask(mask)];
     const counts = computeCellCounts(mask, width, height, config);
