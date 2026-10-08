@@ -341,7 +341,7 @@ export const presets = {
         corridorRing: 3,
         birthThreshold: 2,
         maxReservedRatio: 0.68,
-        survivalRules: {
+        survivalRules: deepMerge(defaultSurvivalRules(), {
             corridor: {
                 spawn: { min: 0, max: 1 },
                 loot: { min: 0, max: 1 },
@@ -359,7 +359,7 @@ export const presets = {
             npc: {
                 maneuver: { min: 2, max: 8 },
             },
-        },
+        }),
         spawn: { count: 6, minDoorDistance: 5, minSpacing: 4, minSupport: 3 },
         loot: { count: 1, minDoorDistance: 8, minSpacing: 8, minSupport: 4 },
         npc: { count: 0, minDoorDistance: 5, minSpacing: 8, minSupport: 4 },
@@ -374,7 +374,7 @@ export const presets = {
         corridorRing: 3,
         birthThreshold: 3,
         maxReservedRatio: 0.52,
-        survivalRules: {
+        survivalRules: deepMerge(defaultSurvivalRules(), {
             corridor: {
                 spawn: { min: 0, max: 2 },
                 loot: { min: 0, max: 2 },
@@ -388,7 +388,7 @@ export const presets = {
             loot: {
                 maneuver: { min: 3, max: 8 },
             },
-        },
+        }),
         spawn: { count: 3, minDoorDistance: 4, minSpacing: 5, minSupport: 3 },
         loot: { count: 1, minDoorDistance: 7, minSpacing: 8, minSupport: 4 },
         npc: { count: 0, minDoorDistance: 5, minSpacing: 8, minSupport: 4 },
@@ -403,7 +403,7 @@ export const presets = {
         corridorRing: 2,
         birthThreshold: 3,
         maxReservedRatio: 0.45,
-        survivalRules: {
+        survivalRules: deepMerge(defaultSurvivalRules(), {
             corridor: {
                 loot: { min: 0, max: 1 },
             },
@@ -414,7 +414,7 @@ export const presets = {
                 maneuver: { min: 3, max: 8 },
                 spawn: { min: 0, max: 0 },
             },
-        },
+        }),
         spawn: { count: 1, minDoorDistance: 5, minSpacing: 5, minSupport: 3 },
         loot: { count: 2, minDoorDistance: 8, minSpacing: 7, minSupport: 4 },
         npc: { count: 0, minDoorDistance: 5, minSpacing: 8, minSupport: 4 },
@@ -429,7 +429,7 @@ export const presets = {
         corridorRing: 2,
         birthThreshold: 3,
         maxReservedRatio: 0.48,
-        survivalRules: {
+        survivalRules: deepMerge(defaultSurvivalRules(), {
             corridor: {
                 npc: { min: 0, max: 1 },
             },
@@ -440,7 +440,7 @@ export const presets = {
                 maneuver: { min: 2, max: 8 },
                 spawn: { min: 0, max: 1 },
             },
-        },
+        }),
         spawn: { count: 0, minDoorDistance: 5, minSpacing: 5, minSupport: 3 },
         loot: { count: 0, minDoorDistance: 8, minSpacing: 8, minSupport: 4 },
         npc: { count: 2, minDoorDistance: 5, minSpacing: 6, minSupport: 4 },
