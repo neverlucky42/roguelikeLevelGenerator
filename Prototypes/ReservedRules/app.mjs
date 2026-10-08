@@ -8,9 +8,11 @@ import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 import {
     Role,
+    RoleBitByKey,
     RoleColors,
     RoleNames,
     RolePriority,
+    SurvivalRoleKeys,
     computeCellCounts,
     defaultConfig,
     generateRoom,
@@ -197,6 +199,58 @@ function PointRules({ title, config, pointKey, updatePoint }) {
     `;
 }
 
+function SurvivalRulesEditor({ config, selectedRole, onSelectRole, onChange }) {
+    const roleLabel = (roleKey) => RoleNames[RoleBitByKey[roleKey]];
+    const rules = config.survivalRules[selectedRole];
+
+    return html`
+        <div className="survival-rules">
+            <div className="survival-tabs">
+                ${SurvivalRoleKeys.map((roleKey) => html`
+                    <button
+                        key=${roleKey}
+                        className=${selectedRole === roleKey ? 'active' : ''}
+                        onClick=${() => onSelectRole(roleKey)}
+                    >
+                        ${roleLabel(roleKey)}
+                    </button>
+                `)}
+            </div>
+            <p className="survival-hint">
+                Клетка <strong>${roleLabel(selectedRole)}</strong> выживает,
+                если количество соседей каждого типа попадает в заданный диапазон.
+            </p>
+            <div className="survival-grid">
+                ${SurvivalRoleKeys.map((neighborRole) => {
+                    const rule = rules[neighborRole];
+                    return html`
+                        <div key=${neighborRole} className="survival-row">
+                            <span>${roleLabel(neighborRole)}</span>
+                            <input
+                                type="number"
+                                min=${0}
+                                max=${32}
+                                step=${1}
+                                value=${rule.min}
+                                onInput=${(event) => onChange(selectedRole, neighborRole, 'min', Number(event.target.value))}
+                            />
+                            <span>—</span>
+                            <input
+                                type="number"
+                                min=${0}
+                                max=${32}
+                                step=${1}
+                                value=${rule.max}
+                                onInput=${(event) => onChange(selectedRole, neighborRole, 'max', Number(event.target.value))}
+                            />
+                        </div>
+                    `;
+                })}
+            </div>
+        </div>
+    `;
+}
+
 function App() {
     const [config, setConfig] = useState(() => presets.boss);
     const [frame, setFrame] = useState(0);
@@ -204,6 +258,7 @@ function App() {
     const [importText, setImportText] = useState('');
     const [cellSize, setCellSize] = useState(20);
     const [showLocked, setShowLocked] = useState(true);
+    const [survivalRole, setSurvivalRole] = useState('corridor');
 
     const deferredConfig = useDeferredValue(config);
     const result = useMemo(() => generateRoom(deferredConfig), [deferredConfig]);
@@ -234,6 +289,22 @@ function App() {
             [pointKey]: {
                 ...current[pointKey],
                 [key]: value,
+            },
+        }));
+    };
+
+    const updateSurvivalRule = (targetRole, neighborRole, bound, value) => {
+        setConfig((current) => ({
+            ...current,
+            survivalRules: {
+                ...current.survivalRules,
+                [targetRole]: {
+                    ...current.survivalRules[targetRole],
+                    [neighborRole]: {
+                        ...current.survivalRules[targetRole][neighborRole],
+                        [bound]: value,
+                    },
+                },
             },
         }));
     };
@@ -308,7 +379,7 @@ function App() {
                 label,
                 className: cellClassNames(mask, visualLocked, door),
                 backgroundColor: RoleColors[primaryRole(mask)],
-                title: `${point.x}, ${point.y} — ${door ? 'Door | ' : ''}${label} — C:${counts.corridor} M:${counts.maneuver} R:${counts.reserved}${locked ? ' [locked]' : ''}`,
+                title: `${point.x}, ${point.y} — ${door ? 'Door | ' : ''}${label} — C:${counts.corridor} M:${counts.maneuver} S:${counts.spawn} L:${counts.loot} N:${counts.npc} B:${counts.structure} R:${counts.reserved}${locked ? ' [locked]' : ''}`,
                 marker,
             });
         }
@@ -459,15 +530,6 @@ function App() {
                         hint="Free -> Maneuver"
                     />
                     <${RangeField}
-                        label="Порог смерти"
-                        value=${config.deathThreshold}
-                        min=${0}
-                        max=${32}
-                        step=${1}
-                        onChange=${(value) => update('deathThreshold', value)}
-                        hint="Maneuver -> Free if less"
-                    />
-                    <${RangeField}
                         label="Кольцо коридора"
                         value=${config.corridorRing}
                         min=${0}
@@ -488,6 +550,15 @@ function App() {
                         label="Обрезать острова"
                         value=${config.pruneIslands}
                         onChange=${(value) => update('pruneIslands', value)}
+                    />
+                <//>
+
+                <${Section} title="Правила выживания">
+                    <${SurvivalRulesEditor}
+                        config=${config}
+                        selectedRole=${survivalRole}
+                        onSelectRole=${setSurvivalRole}
+                        onChange=${updateSurvivalRule}
                     />
                 <//>
 
@@ -621,7 +692,15 @@ function App() {
                         </div>
                         <div>
                             <strong>Neighbors</strong>
-                            <span>C ${hoveredCounts.corridor} / M ${hoveredCounts.maneuver} / R ${hoveredCounts.reserved}</span>
+                            <span>
+                                C ${hoveredCounts.corridor} /
+                                M ${hoveredCounts.maneuver} /
+                                S ${hoveredCounts.spawn} /
+                                L ${hoveredCounts.loot} /
+                                N ${hoveredCounts.npc} /
+                                B ${hoveredCounts.structure} /
+                                R ${hoveredCounts.reserved}
+                            </span>
                         </div>
                     ` : html`
                         <div className="empty">Наведи на клетку, чтобы увидеть её локальное состояние</div>
