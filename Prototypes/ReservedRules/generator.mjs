@@ -973,7 +973,10 @@ export function generateRoom(inputConfig) {
         lockedMask[index] |= Role.Corridor;
     }
 
-    markDisk(mask, lockedMask, hub, config.hubRadius, Role.Maneuver, true, width, height);
+    markDisk(mask, lockedMask, hub, config.hubRadius, Role.Maneuver, false, width, height);
+    const seedHubIndex = pointToIndex(hub, width);
+    mask[seedHubIndex] |= Role.Maneuver;
+    lockedMask[seedHubIndex] |= Role.Maneuver;
     if (config.structureFootprint > 0) {
         markSquare(mask, lockedMask, hub, config.structureFootprint, Role.Structure, true, width, height);
     }
