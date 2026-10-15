@@ -44,4 +44,4 @@ public class CellAutomata : IEnumerator<int[,]>, IEnumerable<int[,]>
         return GetEnumerator();
     }
 
-}
+} 
